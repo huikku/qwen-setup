@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.jpg" alt="Qwen Local AI Setup Guide Banner" width="100%" />
+</p>
+
 # Universal Local AI Deployment & Hardware Sizing Guide
 **Authoritative Architectural Reference, Empirical Benchmarks & Autonomous LLM Execution Runbook**
 *Universal Guide for Any Hardware: From Enterprise Clusters & 128GB Unified Dev Kits (NVIDIA Thor, DGX, Mac Ultra) to Consumer Multi-GPU & Desktop Rigs*
@@ -346,7 +350,8 @@ If you or your colleagues are running flagship hardware, this matrix details the
 1. **For the RTX 4090 Friend (24GB):**
    - The absolute sweet spot is **`Q4_K_M` (17.5 GB)** paired with the **1.5 GB Speculative Draft Head (`-md`)**.
    - With 8-bit KV cache (`q8_0`), a 65k context consumes 2.1 GB, keeping total VRAM under 22 GB.
-   - Run: `./configs/rtx-4090-setup.sh` $ightarrow$ Delivers **72 tok/s**, jumping to **130+ tok/s** on repetitive code syntax.
+   - Run: `./configs/rtx-4090-setup.sh` $
+ightarrow$ Delivers **72 tok/s**, jumping to **130+ tok/s** on repetitive code syntax.
 
 2. **For the RTX 5090 Friend (32GB):**
    - The 32 GB frame buffer allows stepping up to **`Q6_K` (22 GB)** or **`Q8_0` (28.5 GB)** without losing context capacity.
