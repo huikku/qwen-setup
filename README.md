@@ -371,6 +371,33 @@ SYSTEM """You are an expert autonomous software engineer and pair programmer. Pr
 
 ---
 
+
+---
+
+## 7.5. NVIDIA DRIVE / Jetson Thor (128GB Unified Memory) Deployment
+
+The **NVIDIA Thor Developer Kit** features an enterprise-grade **128 GB unified LPDDR5x memory architecture** paired with **Blackwell GPU Tensor Cores** and high-performance **ARM64 Neoverse cores**. 
+
+Unlike consumer PC rigs, Thor is **NOT** subject to discrete PCIe transfer limits:
+- **No PCIe Bottleneck:** The GPU directly shares high-bandwidth access to the entire 128GB memory pool.
+- **Run Qwen 3.8 Flash-Next at 4-Bit Native (94 GB):** Fits entirely inside Thor's 128GB unified RAM with over 25GB left for activation buffers and a 131k context window.
+- **Run Qwen 3.8 27B at Unquantized FP16 (55.6 GB) or FP8 (27.8 GB):** With 128GB unified memory, there is no need to down-quantize 27B to 4-bit. You can run full precision with the complete 262,144-token context window!
+
+### Thor Turnkey Deployment Commands:
+
+1. **Deploy Qwen 3.8 Flash-Next (125B MoE, 4-bit) on Thor:**
+   ```bash
+   ./configs/thor-128gb-setup.sh flash-next
+   ```
+2. **Deploy Qwen 3.8 27B Unquantized FP16 (Max Accuracy, 262k context):**
+   ```bash
+   ./configs/thor-128gb-setup.sh 27b-fp16
+   ```
+3. **Deploy Qwen 3.8 27B Blackwell FP8 (via vLLM):**
+   ```bash
+   ./configs/thor-128gb-setup.sh 27b-fp8
+   ```
+
 ## 8. Autonomous LLM & Agent Runbook (Claude Code / Codex / Antigravity CLI)
 
 ### Master Prompt for Coding Agents

@@ -11,15 +11,17 @@ echo "=========================================================="
 echo "Destination directory: ${MODEL_DIR}"
 echo ""
 echo "Select which model package to download:"
-echo "1) Qwen 3.8 27B Q4_K_M + Speculative Draft Head (24GB GPU Setup - ~19 GB total)"
-echo "2) Qwen 3.8 27B IQ3_XXS (12GB/16GB GPU Setup - ~11 GB)"
-echo "3) Qwen 3.8 Flash-Next 3-bit for Strata (12GB GPU + 64GB RAM Setup - ~48 GB)"
-echo "4) Vision Projector mmproj (Adds vision input support - ~0.6 GB)"
-echo "5) Pull via Ollama (qwen3.8:27b & qwen3.8:flash-next)"
-echo "6) Exit"
+echo "1) [24GB GPU] Qwen 3.8 27B Q4_K_M + Speculative Draft Head (~19 GB total)"
+echo "2) [12GB/16GB GPU] Qwen 3.8 27B IQ3_XXS (~11 GB)"
+echo "3) [12GB GPU + 64GB RAM] Qwen 3.8 Flash-Next 3-bit for Strata (~48 GB)"
+echo "4) [THOR / 128GB] Qwen 3.8 Flash-Next 4-bit Q4_K_M (94 GB - Full MoE in Unified VRAM)"
+echo "5) [THOR / 128GB] Qwen 3.8 27B High-Precision FP16 / FP8 (28-55 GB)"
+echo "6) Vision Projector mmproj (~0.6 GB)"
+echo "7) Pull via Ollama (qwen3.8:27b & qwen3.8:flash-next)"
+echo "8) Exit"
 echo ""
 
-read -rp "Enter choice [1-6]: " CHOICE
+read -rp "Enter choice [1-8]: " CHOICE
 
 check_hf_cli() {
     if ! command -v huggingface-cli &> /dev/null; then
@@ -56,12 +58,26 @@ case "$CHOICE" in
         ;;
     4)
         check_hf_cli
+        echo "[*] Downloading Qwen 3.8 Flash-Next 4-bit Q4_K_M (94 GB) for Thor 128GB Unified Memory..."
+        huggingface-cli download unsloth/Qwen3.8-Flash-Next-GGUF Qwen3.8-Flash-Next-Q4_K_M.gguf \
+            --local-dir "${MODEL_DIR}/qwen3.8-flash-next" --local-dir-use-symlinks False
+        echo "[✓] 94GB MoE downloaded to ${MODEL_DIR}/qwen3.8-flash-next"
+        ;;
+    5)
+        check_hf_cli
+        echo "[*] Downloading Qwen 3.8 27B FP8 (~28 GB)..."
+        huggingface-cli download Qwen/Qwen3.8-27B-FP8 \
+            --local-dir "${MODEL_DIR}/qwen3.8-27b-fp8" --local-dir-use-symlinks False
+        echo "[✓] FP8 weights downloaded to ${MODEL_DIR}/qwen3.8-27b-fp8"
+        ;;
+    6)
+        check_hf_cli
         echo "[*] Downloading Vision mmproj adapter (q8_0 - 620 MB)..."
         huggingface-cli download unsloth/Qwen3.8-27B-GGUF mmproj-model-q8_0.gguf \
             --local-dir "${MODEL_DIR}/qwen3.8-27b" --local-dir-use-symlinks False
         echo "[✓] Vision adapter downloaded to ${MODEL_DIR}/qwen3.8-27b/mmproj-model-q8_0.gguf"
         ;;
-    5)
+    7)
         if ! command -v ollama &> /dev/null; then
             echo "[!] Ollama is not installed. Install via: curl -fsSL https://ollama.com/install.sh | sh"
             exit 1
@@ -72,7 +88,7 @@ case "$CHOICE" in
         ollama pull qwen3.8:flash-next || true
         echo "[✓] Ollama models pulled."
         ;;
-    6)
+    8)
         echo "Exiting."
         exit 0
         ;;
