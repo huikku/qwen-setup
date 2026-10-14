@@ -325,6 +325,39 @@ Target: Standard desktop PCs with 12GB–16GB discrete GPUs and 48GB–64GB host
 
 ---
 
+
+---
+
+## 6.5. High-End Enthusiast & Workstation Guide (Thor vs Pro 6000 vs 5090 vs 4090)
+
+If you or your colleagues are running flagship hardware, this matrix details the maximum capability configuration for each flagship card:
+
+| GPU / System | Memory Size & Type | Memory Bandwidth | Ideal Model & Quantization | Maximum Usable Context | Expected Decode Throughput | Turnkey Script |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **NVIDIA Thor Dev Kit** | 128 GB Unified LPDDR5x | Unified Bus | **Qwen 3.8 Flash-Next (94 GB MoE)** or **27B FP16 (55.6 GB)** | **131,072 to 262,144** | **50–85 tok/s** (Zero-Copy) | [`configs/thor-128gb-setup.sh`](configs/thor-128gb-setup.sh) |
+| **RTX Pro 6000 Blackwell** | 96 GB GDDR7 ECC | ~1,800 GB/s | **Qwen 3.8 Flash-Next 4-bit (94 GB)** or **72B FP8** | **131,072** | **65–90 tok/s** | [`configs/rtx-pro-6000-setup.sh`](configs/rtx-pro-6000-setup.sh) `125b-moe` |
+| **RTX Pro 6000 Ada** | 48 GB GDDR6 ECC | 960 GB/s | **Qwen 3.8 27B Q8_0 (28.5 GB)** or **Qwen 2.5 72B Q4 (41.5 GB)** | **262,144** (27B) / **65k** (72B) | **55–75 tok/s** (27B) / **38–48 tok/s** (72B) | [`configs/rtx-pro-6000-setup.sh`](configs/rtx-pro-6000-setup.sh) `27b-max` |
+| **RTX 5090** | 32 GB GDDR7 | 1,792 GB/s | **Qwen 3.8 27B Q6_K (22 GB)** or **Q8_0 (28.5 GB)** | **131,072** | **65–85 tok/s** (Base) / **130–160+ tok/s** (MTP) | [`configs/rtx-5090-setup.sh`](configs/rtx-5090-setup.sh) |
+| **RTX 4090** | 24 GB GDDR6X | 1,008 GB/s | **Qwen 3.8 27B Q4_K_M (17.5 GB) + MTP Draft Head (1.5 GB)** | **65,536** (8-bit KV) | **46 tok/s** (Base) / **72 tok/s** (Draft) / **135 tok/s** (Code) | [`configs/rtx-4090-setup.sh`](configs/rtx-4090-setup.sh) |
+| **RTX 3090** | 24 GB GDDR6X | 936 GB/s | **Qwen 3.8 27B Q4_K_M (17.5 GB) + MTP Draft Head (1.5 GB)** | **65,536** (8-bit KV) | **41.5 tok/s** (Base) / **66 tok/s** (Draft) | [`configs/llama-server-24gb.sh`](configs/llama-server-24gb.sh) |
+
+### Flagship Highlights:
+
+1. **For the RTX 4090 Friend (24GB):**
+   - The absolute sweet spot is **`Q4_K_M` (17.5 GB)** paired with the **1.5 GB Speculative Draft Head (`-md`)**.
+   - With 8-bit KV cache (`q8_0`), a 65k context consumes 2.1 GB, keeping total VRAM under 22 GB.
+   - Run: `./configs/rtx-4090-setup.sh` $ightarrow$ Delivers **72 tok/s**, jumping to **130+ tok/s** on repetitive code syntax.
+
+2. **For the RTX 5090 Friend (32GB):**
+   - The 32 GB frame buffer allows stepping up to **`Q6_K` (22 GB)** or **`Q8_0` (28.5 GB)** without losing context capacity.
+   - The insane 1,792 GB/s GDDR7 memory bus achieves baseline speeds of **80+ tok/s** and bursts over **160 tok/s** with speculative decoding.
+   - Run: `./configs/rtx-5090-setup.sh`.
+
+3. **For the RTX Pro 6000 Friend (48GB / 96GB):**
+   - **48GB Ada:** Can host a full **Qwen 2.5 72B Dense model at Q4_K_M (41.5 GB)**, or run **Qwen 3.8 27B at near-unquantized Q8_0 with the entire 262,144 context window loaded**.
+   - **96GB Blackwell:** Can run the complete **125B MoE Qwen 3.8 Flash-Next at 4-bit (94 GB)** entirely within the GPU frame buffer!
+   - Run: `./configs/rtx-pro-6000-setup.sh 27b-max` or `./configs/rtx-pro-6000-setup.sh 72b-dense`.
+
 ## 7. Fixing Server Defaults: The 4K Context & Reasoning Traps
 
 > [!IMPORTANT]

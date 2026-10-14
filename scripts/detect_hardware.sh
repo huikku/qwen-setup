@@ -95,105 +95,117 @@ gpu_count = int('${GPU_COUNT}')
 is_unified = '${IS_UNIFIED}' == 'true'
 platform = '${HARDWARE_PLATFORM}'
 arch = '${ARCH}'
+gpu_names = '''${GPU_NAMES[*]}'''
 
 import json
 
 tier = 'UNKNOWN'
 recommendations = []
+launcher = 'configs/universal-launcher.sh'
 
-if vram >= 120.0 or (is_unified and ram >= 120.0):
-    tier = 'TIER_1_ULTRA_ENTERPRISE_128GB_PLUS'
+if 'Thor' in gpu_names or (is_unified and vram >= 120.0):
+    tier = 'NVIDIA_THOR_128GB_UNIFIED'
+    launcher = 'configs/thor-128gb-setup.sh'
     recommendations = [
         {
-            'workload': 'Maximum Quality Dense (Coding / Long Context)',
-            'model': 'Qwen 3.8 27B',
-            'precision': 'FP16 Unquantized (55.6 GB) or Blackwell FP8 (27.8 GB)',
+            'profile': 'Qwen 3.8 Flash-Next (125B MoE)',
+            'quant': 'Q4_K_M (94 GB) or NVFP4',
+            'context_window': 131072,
+            'expected_speed': '45-60 tok/s decode, 1500+ tok/s prefill',
+            'command': './configs/thor-128gb-setup.sh flash-next'
+        },
+        {
+            'profile': 'Qwen 3.8 27B Unquantized FP16 / FP8',
+            'quant': 'FP16 (55.6 GB) or FP8 (27.8 GB)',
             'context_window': 262144,
-            'expected_throughput': '50-90 tok/s decode, 1800+ tok/s prefill',
-            'vram_usage_gb': '56-65 GB',
-            'execution_mode': 'Native GPU Unified / TensorRT-LLM / vLLM'
-        },
-        {
-            'workload': 'Maximum Frontier MoE Scale',
-            'model': 'Qwen 3.8 Flash-Next (125B MoE)',
-            'precision': 'Q4_K_M (94 GB) or NVFP4',
-            'context_window': 131072,
-            'expected_throughput': '45-65 tok/s decode, 1500+ tok/s prefill',
-            'vram_usage_gb': '94-110 GB',
-            'execution_mode': 'Fits 100% in Unified Memory (Zero PCIe transfer penalties)'
+            'expected_speed': '50-85 tok/s',
+            'command': './configs/thor-128gb-setup.sh 27b-fp16'
         }
     ]
-elif vram >= 44.0 or gpu_count >= 2:
-    tier = 'TIER_2_MULTI_GPU_OR_WORKSTATION_48GB_96GB'
+elif '6000' in gpu_names or vram >= 44.0:
+    tier = 'RTX_PRO_6000_WORKSTATION_48GB_96GB'
+    launcher = 'configs/rtx-pro-6000-setup.sh'
     recommendations = [
         {
-            'workload': 'Unquantized or Q8 Dense Workloads',
-            'model': 'Qwen 3.8 27B',
-            'precision': 'FP16 or Q8_0',
-            'context_window': 131072,
-            'expected_throughput': '60-80 tok/s (Multi-GPU Tensor Parallelism / Pipeline)',
-            'vram_usage_gb': '32-58 GB'
+            'profile': 'Qwen 3.8 27B High-Precision Q8_0 (28.5 GB)',
+            'context_window': 262144,
+            'expected_speed': '55-75 tok/s',
+            'command': './configs/rtx-pro-6000-setup.sh 27b-max'
         },
         {
-            'workload': 'MoE Frontier Model',
-            'model': 'Qwen 3.8 Flash-Next (125B MoE)',
-            'precision': 'Q3_K_M or Q4_K_M split across cards',
+            'profile': 'Qwen 2.5 72B Dense Q4_K_M (41.5 GB)',
             'context_window': 65536,
-            'expected_throughput': '50-70 tok/s'
+            'expected_speed': '35-48 tok/s',
+            'command': './configs/rtx-pro-6000-setup.sh 72b-dense'
+        },
+        {
+            'profile': 'Qwen 3.8 Flash-Next 125B MoE (For 96GB Card)',
+            'context_window': 131072,
+            'expected_speed': '50-65 tok/s',
+            'command': './configs/rtx-pro-6000-setup.sh 125b-moe'
         }
     ]
-elif vram >= 23.0:
-    tier = 'TIER_3_HIGH_END_CONSUMER_24GB_32GB'
+elif '5090' in gpu_names or vram >= 30.0:
+    tier = 'RTX_5090_32GB_GDDR7'
+    launcher = 'configs/rtx-5090-setup.sh'
     recommendations = [
         {
-            'workload': 'High-Speed Coding Agent',
-            'model': 'Qwen 3.8 27B',
-            'precision': 'Q4_K_M (16.5-17.5 GB) + 1.5GB Speculative Draft Head',
+            'profile': 'Qwen 3.8 27B Q6_K / Q8_0 High-Precision',
+            'context_window': 131072,
+            'expected_speed': '65-85 tok/s (base) / 130-160+ tok/s (speculative)',
+            'command': './configs/rtx-5090-setup.sh'
+        }
+    ]
+elif '4090' in gpu_names or '3090' in gpu_names or vram >= 23.0:
+    tier = 'RTX_4090_3090_24GB_GDDR6X'
+    launcher = 'configs/rtx-4090-setup.sh'
+    recommendations = [
+        {
+            'profile': 'Qwen 3.8 27B Q4_K_M (17.5 GB) + Speculative MTP Draft Head (1.5 GB)',
             'context_window': 65536,
-            'expected_throughput': '66-72 tok/s decode',
-            'vram_usage_gb': '21.5 GB'
+            'expected_speed': '46 tok/s (base) -> 72 tok/s (draft) -> 135 tok/s (code n-gram)',
+            'command': './configs/rtx-4090-setup.sh'
         }
     ]
 elif vram >= 15.0:
-    tier = 'TIER_4_MID_RANGE_16GB'
+    tier = 'MID_RANGE_16GB_GPU'
+    launcher = 'configs/universal-launcher.sh'
     recommendations = [
         {
-            'workload': 'Long-Context Reasoning',
-            'model': 'Qwen 3.8 27B',
-            'precision': 'IQ3_XXS (11.0 GB) with 4-bit KV Cache',
+            'profile': 'Qwen 3.8 27B IQ3_XXS (11.0 GB) with 4-bit KV Cache',
             'context_window': 131072,
-            'expected_throughput': '28-35 tok/s'
+            'expected_speed': '28-35 tok/s',
+            'command': './configs/universal-launcher.sh /models/qwen3.8-27b/Qwen3.8-27B-IQ3_XXS.gguf'
         }
     ]
 elif vram >= 10.0:
     if ram >= 48.0:
-        tier = 'TIER_5_HYBRID_OFFLOADING_12GB_GPU_HIGH_RAM'
+        tier = 'HYBRID_OFFLOAD_12GB_GPU_HIGH_RAM'
+        launcher = 'configs/strata-12gb-setup.sh'
         recommendations = [
             {
-                'workload': 'Sparse MoE Architecture (Bypasses dense VRAM wall)',
-                'model': 'Qwen 3.8 Flash-Next (125B MoE)',
-                'precision': '3-bit via Strata Engine (Active 6B on GPU + 51B table in RAM)',
+                'profile': 'Qwen 3.8 Flash-Next (125B MoE) 3-bit via Strata',
                 'context_window': 32768,
-                'expected_throughput': '50-62 tok/s decode, 1750 tok/s prefill'
+                'expected_speed': '50-62 tok/s decode, 1750 tok/s prefill',
+                'command': './configs/strata-12gb-setup.sh'
             }
         ]
     else:
-        tier = 'TIER_6_CONSTRAINED_12GB'
+        tier = 'CONSTRAINED_12GB'
+        launcher = 'configs/universal-launcher.sh'
         recommendations = [
             {
-                'model': 'Qwen 3.8 27B',
-                'precision': 'IQ3_XXS (11.0 GB) with 8-bit KV Cache',
+                'profile': 'Qwen 3.8 27B IQ3_XXS',
                 'context_window': 16384,
-                'expected_throughput': '28-32 tok/s'
+                'expected_speed': '28-32 tok/s'
             }
         ]
 else:
-    tier = 'TIER_7_LOW_VRAM_OR_CPU'
+    tier = 'ENTRY_LEVEL_OR_CPU'
     recommendations = [
         {
-            'model': 'Qwen 2.5 Coder 7B or Qwen 3.8 14B',
-            'precision': 'Q4_K_M',
-            'note': 'Dense 27B will spill layers into system memory, reducing throughput to 3-6 tok/s.'
+            'profile': 'Qwen 2.5 Coder 7B or Qwen 3.8 14B Q4_K_M',
+            'note': '27B will spill to host DDR4 RAM and drop to 3-5 tok/s.'
         }
     ]
 
@@ -203,6 +215,7 @@ out = {
     'host_ram_gb': ram,
     'is_unified_memory': is_unified,
     'gpu_count': gpu_count,
+    'launcher_script': launcher,
     'recommendations': recommendations
 }
 print(json.dumps(out, indent=2))
