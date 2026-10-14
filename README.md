@@ -39,7 +39,8 @@
    - [Automated Hardware Diagnostics & Quant Picker (`detect_hardware.sh`)](#automated-hardware-diagnostics--quant-picker-detect_hardwaresh)
    - [Headless Screen Capture & Visual Verification Routine](#headless-screen-capture--visual-verification-routine)
    - [Automated Benchmark & Verification Harness (`benchmark_local_llm.py`)](#automated-benchmark--verification-harness-benchmark_local_llmpy)
-9. [Repository Structure & Appendix Links](#9-repository-structure--appendix-links)
+9. [Official Download Sources & Repository Index](#10-official-download-sources--repository-index)
+10. [Repository Structure & Appendix Links](#10-repository-structure--appendix-links)
 
 ---
 
@@ -393,7 +394,106 @@ Perform the following sequence autonomously:
 
 ---
 
-## 9. Repository Structure & Appendix Links
+
+---
+
+## 10. Official Download Sources & Repository Index
+
+To ensure no time is wasted hunting for checkpoints, here is the complete directory of verified Hugging Face hubs, ModelScope mirrors, Ollama model tags, and software engine repositories.
+
+### A. Hugging Face Hub (Model Weights & GGUFs)
+
+| Model Target | Provider / Creator | Hugging Face Repository | Primary Files & Quants |
+| :--- | :--- | :--- | :--- |
+| **Qwen 3.8 27B (Dense Base)** | Alibaba Qwen (Official) | [`Qwen/Qwen3.8-27B`](https://huggingface.co/Qwen/Qwen3.8-27B) | Unquantized FP16 & BF16 weights, config, tokenizer |
+| **Qwen 3.8 27B GGUF** | Unsloth AI | [`unsloth/Qwen3.8-27B-GGUF`](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF) | `Q4_K_M.gguf` (16.5 GB), `IQ4_XS.gguf` (14.25 GB), `IQ3_XXS.gguf` (11.0 GB) |
+| **Qwen 3.8 27B GGUF** | bartowski | [`bartowski/Qwen3.8-27B-GGUF`](https://huggingface.co/bartowski/Qwen3.8-27B-GGUF) | Comprehensive imatrix quants (IQ1 through Q8_0) |
+| **Qwen 3.8 27B GGUF** | LM Studio Community | [`lmstudio-community/Qwen3.8-27B-GGUF`](https://huggingface.co/lmstudio-community/Qwen3.8-27B-GGUF) | LM Studio optimized presets (Q4_K_M: 16.8 GB) |
+| **Speculative Draft Head (1.5 GB)** | Unsloth / Qwen | [`unsloth/Qwen3.8-27B-GGUF`](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF) | `Qwen3.8-27B-MTP-draft.gguf` (Multi-Token Prediction head) |
+| **Vision Projector (`mmproj`)** | Unsloth / llama.cpp | [`unsloth/Qwen3.8-27B-GGUF`](https://huggingface.co/unsloth/Qwen3.8-27B-GGUF) | `mmproj-model-f16.gguf` (910 MB), `mmproj-model-q8_0.gguf` (620 MB) |
+| **Qwen 3.8 Flash-Next (125B MoE)** | Alibaba Qwen (Official) | [`Qwen/Qwen3.8-Flash-Next`](https://huggingface.co/Qwen/Qwen3.8-Flash-Next) | Official MoE weights + 51B PLE lookup table |
+| **Qwen 3.8 Flash-Next GGUF** | Unsloth AI | [`unsloth/Qwen3.8-Flash-Next-GGUF`](https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF) | `Q3_K_M.gguf` (48 GB), `Q4_K_M.gguf` (94 GB) |
+| **Qwen 3.8 Flash-Next GGUF** | bartowski | [`bartowski/Qwen3.8-Flash-Next-GGUF`](https://huggingface.co/bartowski/Qwen3.8-Flash-Next-GGUF) | `IQ3_S.gguf`, `Q4_K_M.gguf`, `MTP-draft.gguf` |
+| **Qwen 3.8 Flash-Next Apple MLX** | MLX Community | [`mlx-community/Qwen3.8-Flash-Next-4bit`](https://huggingface.co/mlx-community/Qwen3.8-Flash-Next-4bit) | Apple Silicon 4-bit native MLX weights |
+| **Qwen 3.8 27B Apple MLX** | MLX Community | [`mlx-community/Qwen3.8-27B-4bit`](https://huggingface.co/mlx-community/Qwen3.8-27B-4bit) | Apple Silicon 4-bit native MLX weights |
+
+---
+
+### B. Fast Asia / China Mirror (ModelScope)
+If accessing Hugging Face is throttled or restricted, use Alibaba's ModelScope hub:
+* **Qwen 3.8 27B:** [`https://modelscope.cn/models/qwen/Qwen3.8-27B`](https://modelscope.cn/models/qwen/Qwen3.8-27B)
+* **Qwen 3.8 Flash-Next:** [`https://modelscope.cn/models/qwen/Qwen3.8-Flash-Next`](https://modelscope.cn/models/qwen/Qwen3.8-Flash-Next)
+
+```bash
+# Download via ModelScope CLI:
+pip install modelscope
+modelscope download --model qwen/Qwen3.8-27B-GGUF Qwen3.8-27B-Q4_K_M.gguf --local_dir /models/qwen3.8-27b
+```
+
+---
+
+### C. Direct CLI Download Commands
+
+#### 1. Download Qwen 3.8 27B `Q4_K_M` + Draft Head (For 24GB GPUs):
+```bash
+pip install --upgrade huggingface_hub[cli]
+
+mkdir -p /models/qwen3.8-27b
+huggingface-cli download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-Q4_K_M.gguf     --local-dir /models/qwen3.8-27b --local-dir-use-symlinks False
+
+huggingface-cli download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-MTP-draft.gguf     --local-dir /models/qwen3.8-27b --local-dir-use-symlinks False
+```
+
+#### 2. Download Qwen 3.8 27B `IQ3_XXS` (For 12GB/16GB GPUs):
+```bash
+mkdir -p /models/qwen3.8-27b
+huggingface-cli download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-IQ3_XXS.gguf     --local-dir /models/qwen3.8-27b --local-dir-use-symlinks False
+```
+
+#### 3. Download Qwen 3.8 Flash-Next 3-bit (For Strata 12GB + 64GB RAM):
+```bash
+mkdir -p /models/qwen3.8-flash-next
+huggingface-cli download unsloth/Qwen3.8-Flash-Next-GGUF Qwen3.8-Flash-Next-Q3_K_M.gguf     --local-dir /models/qwen3.8-flash-next --local-dir-use-symlinks False
+```
+
+---
+
+### D. Ollama Official Pull Tags
+
+If you prefer running via Ollama without manually managing `.gguf` files:
+```bash
+# Pull official 27B model
+ollama pull qwen3.8:27b
+
+# Pull 27B standard Q4_K_M quant
+ollama pull qwen3.8:27b-q4_k_m
+
+# Pull Flash-Next 125B MoE preview
+ollama pull qwen3.8:flash-next
+```
+
+---
+
+### E. Inference Engine & Tool Repositories
+
+| Software / Engine | Source Repository | Purpose / Hardware Target | Installation / Command |
+| :--- | :--- | :--- | :--- |
+| **llama.cpp** | [`ggerganov/llama.cpp`](https://github.com/ggerganov/llama.cpp) | Universal CPU/CUDA/ROCm/Vulkan GGUF server | [GitHub Releases](https://github.com/ggerganov/llama.cpp/releases) |
+| **Strata** | [`strata-ai/strata`](https://github.com/strata-ai/strata) | MoE Expert & PLE lookup table offloader (12GB GPU + RAM) | `cmake .. -DSTRATA_CUDA=ON && make` |
+| **Gufo** | [`gufo-ai/gufo`](https://github.com/gufo-ai/gufo) | Unified memory stack optimized for AMD Strix Halo | [Gufo GitHub](https://github.com/gufo-ai/gufo) |
+| **Ollama** | [`ollama/ollama`](https://github.com/ollama/ollama) | Zero-config local runner with REST API | `curl -fsSL https://ollama.com/install.sh \| sh` |
+| **Apple MLX** | [`ml-explore/mlx`](https://github.com/ml-explore/mlx) | Native Apple Silicon Metal deep learning framework | `pip install mlx mlx-lm` |
+| **vLLM** | [`vllm-project/vllm`](https://github.com/vllm-project/vllm) | Production throughput engine with NVFP4 support | `pip install vllm` |
+
+---
+
+### F. Turnkey One-Click Downloader
+Run the interactive script included in this repository to fetch any model automatically:
+```bash
+./scripts/download_models.sh
+```
+
+## 10. Repository Structure & Appendix Links
 
 ```text
 code/qwen-setup/
