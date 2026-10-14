@@ -2,7 +2,7 @@
   <img src="assets/banner.jpg" alt="Qwen Local AI Setup Guide Banner" width="100%" />
 </p>
 
-# Universal Local AI Deployment & Hardware Sizing Guide
+# Qwen 3.8: Universal Local AI Deployment & Hardware Sizing Guide
 **Authoritative Architectural Reference, Empirical Benchmarks & Autonomous LLM Execution Runbook**
 *Universal Guide for Any Hardware: From Enterprise Clusters & 128GB Unified Dev Kits (NVIDIA Thor, DGX, Mac Ultra) to Consumer Multi-GPU & Desktop Rigs*
 
