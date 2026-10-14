@@ -1,162 +1,209 @@
 #!/usr/bin/env bash
+# detect_hardware.sh - Universal Hardware Profiler & LLM Deployment Recommender
+# Evaluates single-GPU, multi-GPU, unified memory (Thor/Jetson/Mac), and CPU topologies.
 set -euo pipefail
 
-echo "=========================================================="
-echo "    Local AI Hardware Diagnostic & Quant Picker           "
-echo "=========================================================="
+echo "================================================================================"
+echo "          UNIVERSAL LOCAL AI HARDWARE PROFILER & CONFIGURATION ENGINE           "
+echo "================================================================================"
 
 ARCH=$(uname -m)
-OS_TYPE=$(uname -s)
+OS_NAME=$(uname -s)
 
-# 1. System Host Memory
+# 1. CPU & Instruction Sets
+CPU_CORES=$(nproc)
+CPU_MODEL=$(lscpu 2>/dev/null | grep "Model name:" | sed 's/Model name:[ \t]*//' || echo "$ARCH Processor")
+HAS_AVX512=$(grep -q "avx512" /proc/cpuinfo 2>/dev/null && echo true || echo false)
+HAS_AMX=$(grep -q "amx" /proc/cpuinfo 2>/dev/null && echo true || echo false)
+HAS_ARM_NEON=$([ "$ARCH" = "aarch64" ] && echo true || echo false)
+
+# 2. Host System RAM
 TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
 TOTAL_RAM_GB=$(awk "BEGIN {printf \"%.1f\", $TOTAL_RAM_KB / 1024 / 1024}")
 FREE_RAM_KB=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
 FREE_RAM_GB=$(awk "BEGIN {printf \"%.1f\", $FREE_RAM_KB / 1024 / 1024}")
 
-# 2. CPU Specs
-CPU_MODEL=$(lscpu 2>/dev/null | grep "Model name:" | sed 's/Model name:[ \t]*//' || echo "$ARCH Processor")
-CPU_CORES=$(nproc)
+# 3. GPU Discovery (NVIDIA CUDA / Tegra / AMD ROCm / Apple Metal)
+GPU_COUNT=0
+GPU_NAMES=()
+TOTAL_VRAM_MB=0
+FREE_VRAM_MB=0
+IS_UNIFIED=false
+HARDWARE_PLATFORM="Generic_Linux"
 
-# 3. GPU Detection
-HAS_NVIDIA=false
-GPU_NAME="None"
-VRAM_TOTAL_MB=0
-VRAM_FREE_MB=0
-IS_TEGRA_THOR=false
-
+# Check for NVIDIA Thor / Jetson / DRIVE
 if [ -f "/proc/device-tree/model" ]; then
-    DEVICE_MODEL=$(tr -d '\0' < /proc/device-tree/model || true)
-    if [[ "$DEVICE_MODEL" =~ (Thor|Jetson|DRIVE) ]]; then
-        IS_TEGRA_THOR=true
-        GPU_NAME="NVIDIA Thor (Blackwell Architecture, Unified Memory)"
+    DEVICE_TREE_MODEL=$(tr -d '\0' < /proc/device-tree/model || true)
+    if [[ "$DEVICE_TREE_MODEL" =~ (Thor|Jetson|DRIVE) ]]; then
+        IS_UNIFIED=true
+        HARDWARE_PLATFORM="NVIDIA_THOR_OR_JETSON"
+        GPU_NAMES+=("$DEVICE_TREE_MODEL (Blackwell Unified Memory)")
     fi
 fi
 
+# NVIDIA SMI Discovery
 if command -v nvidia-smi &> /dev/null; then
-    HAS_NVIDIA=true
-    if [ "$IS_TEGRA_THOR" = false ]; then
-        GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)
+    NV_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
+    if [ "$NV_COUNT" -gt 0 ]; then
+        GPU_COUNT=$NV_COUNT
+        while IFS= read -r line; do
+            GPU_NAMES+=("$line")
+        done < <(nvidia-smi --query-gpu=name --format=csv,noheader)
+        
+        TOTAL_VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | awk '{s+=$1} END {print s}')
+        FREE_VRAM_MB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | awk '{s+=$1} END {print s}')
     fi
-    VRAM_TOTAL_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -n 1 || echo 0)
-    VRAM_FREE_MB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -n 1 || echo 0)
 fi
 
-# On Tegra / Unified architectures, host RAM IS GPU VRAM
-if [ "$IS_TEGRA_THOR" = true ] || (( $(echo "$VRAM_TOTAL_MB < 1000" | bc -l) )); then
-    if (( $(echo "$TOTAL_RAM_GB >= 96.0" | bc -l) )); then
-        VRAM_TOTAL_GB="$TOTAL_RAM_GB"
-        VRAM_FREE_GB="$FREE_RAM_GB"
-        UNIFIED_MEMORY=true
-    else
-        VRAM_TOTAL_GB=$(awk "BEGIN {printf \"%.1f\", $VRAM_TOTAL_MB / 1024}")
-        VRAM_FREE_GB=$(awk "BEGIN {printf \"%.1f\", $VRAM_FREE_MB / 1024}")
-        UNIFIED_MEMORY=false
-    fi
+# Check for Apple Silicon
+if [ "$OS_NAME" = "Darwin" ]; then
+    IS_UNIFIED=true
+    HARDWARE_PLATFORM="Apple_Silicon"
+    TOTAL_RAM_BYTES=$(sysctl -n hw.memsize)
+    TOTAL_RAM_GB=$(awk "BEGIN {printf \"%.1f\", $TOTAL_RAM_BYTES / 1024 / 1024 / 1024}")
+    GPU_NAMES+=("Apple M-Series GPU (Unified Memory)")
+    TOTAL_VRAM_MB=$(awk "BEGIN {printf \"%.0f\", $TOTAL_RAM_GB * 1024 * 0.75}")
+fi
+
+# If unified memory platform, addressable memory is host memory
+if [ "$IS_UNIFIED" = true ] || [ "$HARDWARE_PLATFORM" = "NVIDIA_THOR_OR_JETSON" ]; then
+    TOTAL_ADDRESSABLE_GB="$TOTAL_RAM_GB"
+    FREE_ADDRESSABLE_GB="$FREE_RAM_GB"
+    IS_UNIFIED=true
 else
-    VRAM_TOTAL_GB=$(awk "BEGIN {printf \"%.1f\", $VRAM_TOTAL_MB / 1024}")
-    VRAM_FREE_GB=$(awk "BEGIN {printf \"%.1f\", $VRAM_FREE_MB / 1024}")
-    UNIFIED_MEMORY=false
+    TOTAL_ADDRESSABLE_GB=$(awk "BEGIN {printf \"%.1f\", $TOTAL_VRAM_MB / 1024}")
+    FREE_ADDRESSABLE_GB=$(awk "BEGIN {printf \"%.1f\", $FREE_VRAM_MB / 1024}")
 fi
 
-echo "Architecture: $ARCH"
-echo "CPU:          $CPU_MODEL ($CPU_CORES execution threads)"
-echo "Host RAM:     ${TOTAL_RAM_GB} GB Total (${FREE_RAM_GB} GB Available)"
-echo "GPU / Device: $GPU_NAME"
-echo "Addressable:  ${VRAM_TOTAL_GB} GB (Unified Memory: ${UNIFIED_MEMORY})"
-echo "=========================================================="
+echo "Architecture:        $ARCH ($OS_NAME)"
+echo "CPU Specs:           $CPU_MODEL ($CPU_CORES execution threads)"
+echo "Accelerators:        ${#GPU_NAMES[@]} detected"
+for g in "${GPU_NAMES[@]}"; do
+    echo "  - $g"
+done
+echo "Host RAM:            ${TOTAL_RAM_GB} GB Total (${FREE_RAM_GB} GB Free)"
+echo "Total Addressable:   ${TOTAL_ADDRESSABLE_GB} GB (Unified Pool: ${IS_UNIFIED})"
+echo "================================================================================"
 
 echo ""
-echo "--- AGENT / LLM DEPLOYMENT SPECIFICATION (JSON) ---"
+echo "--- AUTONOMOUS AGENT DEPLOYMENT DIRECTIVE (JSON) ---"
 
 python3 -c "
-vram = float('${VRAM_TOTAL_GB}')
+vram = float('${TOTAL_ADDRESSABLE_GB}')
 ram = float('${TOTAL_RAM_GB}')
+gpu_count = int('${GPU_COUNT}')
+is_unified = '${IS_UNIFIED}' == 'true'
+platform = '${HARDWARE_PLATFORM}'
 arch = '${ARCH}'
-is_thor = '${IS_TEGRA_THOR}' == 'true'
 
 import json
 
-if is_thor or (vram >= 110.0 and arch == 'aarch64') or (vram >= 110.0 and '${UNIFIED_MEMORY}' == 'true'):
-    res = {
-        'hardware_tier': 'NVIDIA_THOR_128GB_UNIFIED',
-        'device': 'NVIDIA Thor Dev Kit (Blackwell / 128GB Unified)',
-        'target_models': [
+tier = 'UNKNOWN'
+recommendations = []
+
+if vram >= 120.0 or (is_unified and ram >= 120.0):
+    tier = 'TIER_1_ULTRA_ENTERPRISE_128GB_PLUS'
+    recommendations = [
+        {
+            'workload': 'Maximum Quality Dense (Coding / Long Context)',
+            'model': 'Qwen 3.8 27B',
+            'precision': 'FP16 Unquantized (55.6 GB) or Blackwell FP8 (27.8 GB)',
+            'context_window': 262144,
+            'expected_throughput': '50-90 tok/s decode, 1800+ tok/s prefill',
+            'vram_usage_gb': '56-65 GB',
+            'execution_mode': 'Native GPU Unified / TensorRT-LLM / vLLM'
+        },
+        {
+            'workload': 'Maximum Frontier MoE Scale',
+            'model': 'Qwen 3.8 Flash-Next (125B MoE)',
+            'precision': 'Q4_K_M (94 GB) or NVFP4',
+            'context_window': 131072,
+            'expected_throughput': '45-65 tok/s decode, 1500+ tok/s prefill',
+            'vram_usage_gb': '94-110 GB',
+            'execution_mode': 'Fits 100% in Unified Memory (Zero PCIe transfer penalties)'
+        }
+    ]
+elif vram >= 44.0 or gpu_count >= 2:
+    tier = 'TIER_2_MULTI_GPU_OR_WORKSTATION_48GB_96GB'
+    recommendations = [
+        {
+            'workload': 'Unquantized or Q8 Dense Workloads',
+            'model': 'Qwen 3.8 27B',
+            'precision': 'FP16 or Q8_0',
+            'context_window': 131072,
+            'expected_throughput': '60-80 tok/s (Multi-GPU Tensor Parallelism / Pipeline)',
+            'vram_usage_gb': '32-58 GB'
+        },
+        {
+            'workload': 'MoE Frontier Model',
+            'model': 'Qwen 3.8 Flash-Next (125B MoE)',
+            'precision': 'Q3_K_M or Q4_K_M split across cards',
+            'context_window': 65536,
+            'expected_throughput': '50-70 tok/s'
+        }
+    ]
+elif vram >= 23.0:
+    tier = 'TIER_3_HIGH_END_CONSUMER_24GB_32GB'
+    recommendations = [
+        {
+            'workload': 'High-Speed Coding Agent',
+            'model': 'Qwen 3.8 27B',
+            'precision': 'Q4_K_M (16.5-17.5 GB) + 1.5GB Speculative Draft Head',
+            'context_window': 65536,
+            'expected_throughput': '66-72 tok/s decode',
+            'vram_usage_gb': '21.5 GB'
+        }
+    ]
+elif vram >= 15.0:
+    tier = 'TIER_4_MID_RANGE_16GB'
+    recommendations = [
+        {
+            'workload': 'Long-Context Reasoning',
+            'model': 'Qwen 3.8 27B',
+            'precision': 'IQ3_XXS (11.0 GB) with 4-bit KV Cache',
+            'context_window': 131072,
+            'expected_throughput': '28-35 tok/s'
+        }
+    ]
+elif vram >= 10.0:
+    if ram >= 48.0:
+        tier = 'TIER_5_HYBRID_OFFLOADING_12GB_GPU_HIGH_RAM'
+        recommendations = [
             {
+                'workload': 'Sparse MoE Architecture (Bypasses dense VRAM wall)',
                 'model': 'Qwen 3.8 Flash-Next (125B MoE)',
-                'quant': 'Q4_K_M (or NVFP4 / FP8)',
-                'footprint_gb': '94-105 GB',
-                'context_window': 131072,
-                'status': 'FITS FULLY IN 128GB UNIFIED VRAM',
-                'engine': 'vLLM / llama-server (CUDA aarch64)',
-                'expected_tok_s': '45-60 tok/s decode, 1500+ tok/s prefill'
-            },
+                'precision': '3-bit via Strata Engine (Active 6B on GPU + 51B table in RAM)',
+                'context_window': 32768,
+                'expected_throughput': '50-62 tok/s decode, 1750 tok/s prefill'
+            }
+        ]
+    else:
+        tier = 'TIER_6_CONSTRAINED_12GB'
+        recommendations = [
             {
                 'model': 'Qwen 3.8 27B',
-                'quant': 'FP16 (Unquantized) or FP8 / Q8_0',
-                'footprint_gb': '28-56 GB',
-                'context_window': 262144,
-                'status': 'MAXIMUM PRECISION & MASSIVE CONTEXT',
-                'engine': 'vLLM / llama-server',
-                'expected_tok_s': '50-80 tok/s'
+                'precision': 'IQ3_XXS (11.0 GB) with 8-bit KV Cache',
+                'context_window': 16384,
+                'expected_throughput': '28-32 tok/s'
             }
-        ],
-        'launcher_script': 'configs/thor-128gb-setup.sh',
-        'notes': 'Unified memory architecture gives the GPU direct zero-copy access to the full 128GB pool. No PCIe transfer penalty.'
-    }
-elif vram >= 23.0:
-    res = {
-        'hardware_tier': '24GB_DISCRETE_GPU',
-        'target_model': 'Qwen 3.8 27B',
-        'quant': 'Q4_K_M',
-        'model_size_gb': 17.5,
-        'draft_head_enabled': True,
-        'draft_model': 'qwen3.8-27b-draft.gguf (1.5 GB)',
-        'kv_cache_type': 'q8_0',
-        'max_ctx': 65536,
-        'expected_decode_tok_s': '66-72 (with draft head) / 41-46 (base)',
-        'launcher_script': 'configs/llama-server-24gb.sh'
-    }
-elif vram >= 15.0:
-    res = {
-        'hardware_tier': '16GB_DISCRETE_GPU',
-        'target_model': 'Qwen 3.8 27B',
-        'quant': 'IQ3_XXS (for 128k context) OR IQ4_XS (for 20k context)',
-        'model_size_gb': 11.0,
-        'draft_head_enabled': False,
-        'kv_cache_type': 'q4_0',
-        'max_ctx': 131072,
-        'expected_decode_tok_s': '28-35'
-    }
-elif vram >= 11.0:
-    if ram >= 48.0:
-        res = {
-            'hardware_tier': '12GB_GPU_HIGH_RAM',
-            'target_model': 'Qwen 3.8 Flash-Next (125B MoE)',
-            'quant': '3-bit',
-            'engine': 'Strata (Expert Offloading)',
-            'vram_allocation_gb': 10.5,
-            'ram_allocation_gb': 48.0,
-            'max_ctx': 32768,
-            'expected_decode_tok_s': '50-62',
-            'expected_prefill_tok_s': 1750,
-            'launcher_script': 'configs/strata-12gb-setup.sh'
-        }
-    else:
-        res = {
-            'hardware_tier': '12GB_GPU_LOW_RAM',
-            'target_model': 'Qwen 3.8 27B',
-            'quant': 'IQ3_XXS',
-            'model_size_gb': 11.0,
-            'kv_cache_type': 'q8_0',
-            'max_ctx': 16384,
-            'expected_decode_tok_s': '28-33'
-        }
+        ]
 else:
-    res = {
-        'hardware_tier': 'LOW_VRAM',
-        'target_model': 'Qwen 3.8 14B or Qwen 2.5 Coder 7B'
-    }
+    tier = 'TIER_7_LOW_VRAM_OR_CPU'
+    recommendations = [
+        {
+            'model': 'Qwen 2.5 Coder 7B or Qwen 3.8 14B',
+            'precision': 'Q4_K_M',
+            'note': 'Dense 27B will spill layers into system memory, reducing throughput to 3-6 tok/s.'
+        }
+    ]
 
-print(json.dumps(res, indent=2))
+out = {
+    'hardware_tier': tier,
+    'total_addressable_gb': vram,
+    'host_ram_gb': ram,
+    'is_unified_memory': is_unified,
+    'gpu_count': gpu_count,
+    'recommendations': recommendations
+}
+print(json.dumps(out, indent=2))
 "
