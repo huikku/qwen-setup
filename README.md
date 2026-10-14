@@ -1,41 +1,51 @@
 # Local AI Hardware, VRAM Allocation, and Model Setup Guide
-**Authoritative Reference & Autonomous LLM Execution Runbook**
-*Derived from Kernel Brief AI analysis of Qwen 3.8 27B and Qwen 3.8 Flash-Next (128GB VRAM vs. Expert Offloading)*
+**Authoritative Architectural Reference, Empirical Benchmarks & Autonomous LLM Execution Runbook**
+*Synthesized from Kernel Brief AI analysis, Alibaba Qwen technical reports, and community hardware benchmarks (Qwen 3.8 27B & Qwen 3.8 Flash-Next 125B MoE)*
 
 ---
 
 ## Table of Contents
 1. [Executive Summary & Quick Hardware Sizing Matrix](#1-executive-summary--quick-hardware-sizing-matrix)
-2. [The 5 VRAM Slices & Theoretical Foundations](#2-the-5-vram-slices--theoretical-foundations)
+2. [Verified Model Capabilities & Benchmark Scorecard](#2-verified-model-capabilities--benchmark-scorecard)
+   - [SWE-bench Pro & LiveCodeBench Leadership](#swe-bench-pro--livecodebench-leadership)
+   - [Benchmark Summary Table vs Frontier Models](#benchmark-summary-table-vs-frontier-models)
+   - [Thinking Effort Hierarchy (`low`, `medium`, `high`, `xhigh`)](#thinking-effort-hierarchy)
+3. [Deep Architecture Breakdown: How Qwen Beats the Memory Wall](#3-deep-architecture-breakdown-how-qwen-beats-the-memory-wall)
+   - [Hybrid Attention: Gated DeltaNet (GDN) + QSA (The 3:1 Layer Ratio)](#hybrid-attention-gated-deltanet-gdn--qsa-the-31-layer-ratio)
+   - [Predictive Lookup Embedding (PLE): The 51B N-Gram Table](#predictive-lookup-embedding-ple-the-51b-n-gram-table)
+   - [Gated Residuals (GR) & Cross-Layer Stability](#gated-residuals-gr--cross-layer-stability)
+4. [The 5 VRAM Slices & Theoretical Foundations](#4-the-5-vram-slices--theoretical-foundations)
    - [Slice 1: Model Weights & The Q4_K_M Trap](#slice-1-model-weights--the-q4_k_m-naming-trap)
-   - [Slice 2: KV Cache & Gated Delta Linear Attention](#slice-2-kv-cache--gated-delta-linear-attention)
-   - [Slice 3: Extras (Vision Projector & Speculative Draft Head)](#slice-3-extras-vision-adapter--speculative-draft-head)
+   - [Slice 2: KV Cache & The 157MB Recurrent State](#slice-2-kv-cache--the-157mb-recurrent-state)
+   - [Slice 3: Extras (Vision mmproj & Speculative Draft Head)](#slice-3-extras-vision-adapter--speculative-draft-head)
    - [Slice 4: Scratch Space & State Buffers](#slice-4-scratch-space--state-buffers)
    - [Slice 5: Display Buffer & Host OS Overhead](#slice-5-display-buffer--host-os-overhead)
    - [The Memory Bandwidth Decoding Law](#the-memory-bandwidth-decoding-law)
-3. [The 128GB VRAM Myth & "The Fourth Bit" Economics](#3-the-128gb-vram-myth--the-fourth-bit-economics)
-   - [Qwen 3.8 Flash-Next Architecture & Expert Offloading](#qwen-38-flash-next-architecture--expert-offloading)
-   - [The Hidden 96GB Memory Cap Trap](#the-hidden-96gb-memory-cap-trap)
+5. [Inference Engine Showdown: Strata vs Gufo vs llama.cpp vs vLLM](#5-inference-engine-showdown-strata-vs-gufo-vs-llamacpp-vs-vllm)
+   - [Strata: Discrete Consumer GPU + RAM Tiering](#strata-discrete-consumer-gpu--ram-tiering)
+   - [Gufo: High-Bandwidth Unified Memory (AMD Strix Halo)](#gufo-high-bandwidth-unified-memory-amd-strix-halo)
+   - [Speculative Decoding Deep Dive (MTP vs DFlash vs N-Gram Stacking)](#speculative-decoding-deep-dive-mtp-vs-dflash-vs-n-gram-stacking)
+6. [The 128GB VRAM Myth & "The Fourth Bit" Economics](#6-the-128gb-vram-myth--the-fourth-bit-economics)
+   - [The Hidden 96GB OS Memory Cap Trap](#the-hidden-96gb-os-memory-cap-trap)
    - [Engine Impact on Long-Context Prefill Speed](#engine-impact-on-long-context-prefill-speed)
    - [Economic Decision Matrix: Upgrades vs Unified Boxes vs Cloud](#economic-decision-matrix-upgrades-vs-unified-boxes-vs-cloud)
-4. [Step-by-Step Hardware Setup Recipes](#4-step-by-step-hardware-setup-recipes)
+7. [Step-by-Step Hardware Setup Recipes](#7-step-by-step-hardware-setup-recipes)
    - [Recipe A: Qwen 3.8 Flash-Next via Strata (12GB–24GB GPU + System RAM)](#recipe-a-qwen-38-flash-next-via-strata-12gb24gb-gpu--system-ram)
    - [Recipe B: Qwen 3.8 27B on Consumer GPUs (8GB, 12GB, 16GB, 24GB, 32GB)](#recipe-b-qwen-38-27b-on-consumer-gpus-8gb-12gb-16gb-24gb-32gb)
    - [Recipe C: Unified Memory Workstations (Strix Halo, Mac Studio M5 Max, DGX Spark)](#recipe-c-unified-memory-workstations-strix-halo-mac-studio-m5-max-dgx-spark)
    - [Recipe D: Fixing Ollama (4K Context Window & Reasoning Traps)](#recipe-d-fixing-ollama-4k-context-window--reasoning-traps)
-5. [Autonomous LLM & Agent Runbook (Claude Code / Codex / Antigravity CLI)](#5-autonomous-llm--agent-runbook-claude-code--codex--antigravity-cli)
+8. [Autonomous LLM & Agent Runbook (Claude Code / Codex / Antigravity CLI)](#8-autonomous-llm--agent-runbook-claude-code--codex--antigravity-cli)
    - [Master Prompt for Coding Agents](#master-prompt-for-coding-agents)
    - [Automated Hardware Diagnostics & Quant Picker (`detect_hardware.sh`)](#automated-hardware-diagnostics--quant-picker-detect_hardwaresh)
    - [Headless Screen Capture & Visual Verification Routine](#headless-screen-capture--visual-verification-routine)
    - [Automated Benchmark & Verification Harness (`benchmark_local_llm.py`)](#automated-benchmark--verification-harness-benchmark_local_llmpy)
-6. [Repository Structure](#6-repository-structure)
-7. [Appendix Links](#7-appendix-links)
+9. [Repository Structure & Appendix Links](#9-repository-structure--appendix-links)
 
 ---
 
 ## 1. Executive Summary & Quick Hardware Sizing Matrix
 
-Deploying modern open weights (such as **Qwen 3.8 27B** and **Qwen 3.8 Flash-Next 125B MoE**) locally requires moving beyond simplistic VRAM sizing formulas. Memory allocation is split across five distinct hardware buffers, and token generation speed is strictly bounded by hardware memory bandwidth rather than compute FLOPS.
+Deploying modern open weights (such as **Qwen 3.8 27B** dense and **Qwen 3.8 Flash-Next 125B MoE**) locally requires moving beyond simplistic VRAM sizing formulas. Memory allocation is split across five distinct hardware buffers, and token generation speed is strictly bounded by hardware memory bandwidth rather than compute FLOPS.
 
 ### At a Glance: Model Deployment Matrix
 
@@ -45,14 +55,77 @@ Deploying modern open weights (such as **Qwen 3.8 27B** and **Qwen 3.8 Flash-Nex
 | **12 GB GPU**<br>*(e.g., RTX 3060 12GB, RTX 4070)* | **Qwen 3.8 Flash-Next 3-bit** (Active 6B on GPU + 51B offloaded) | **Strata** | 32k tokens | FP16 / 8-bit | **50–62 tok/s**<br>(1,750 tok/s prefill) | **Sweet Spot for 12GB**: Far faster and smarter than 27B dense. |
 | **12 GB GPU**<br>*(e.g., RTX 3060 12GB)* | Qwen 3.8 27B `IQ3_XXS` (~11 GB) | llama.cpp / Ollama | 8k–16k tokens | 8-bit (`q8_0`) | ~28–33 tok/s | Usable for medium context. Screen buffer must be minimized. |
 | **16 GB GPU**<br>*(e.g., RTX 4060 Ti 16GB, 4080 16GB)* | Qwen 3.8 27B `IQ3_XXS` (11 GB) or `IQ4_XS` (14.25 GB) | llama.cpp / Ollama | 128k (`IQ3`)<br>20k (`IQ4`) | 4-bit (`q4_0`) or 8-bit (`q8_0`) | ~25–35 tok/s | Long-context coding assistant with `IQ3_XXS` + 4-bit KV. |
-| **24 GB GPU**<br>*(e.g., RTX 3090, RTX 4090)* | **Qwen 3.8 27B `Q4_K_M`** (16.5–17.5 GB) + **Draft Head** | **llama.cpp** | 64k–128k tokens | 8-bit (`q8_0`) | **41.5 tok/s** (base)<br>**66 tok/s** (speculative) | **The Benchmark Gold Standard**: Full 4-bit accuracy, speculative boost. |
+| **24 GB GPU**<br>*(e.g., RTX 3090, RTX 4090)* | **Qwen 3.8 27B `Q4_K_M`** (16.5–17.5 GB) + **Draft Head** | **llama.cpp** | 64k–128k tokens | 8-bit (`q8_0`) | **41.5 tok/s** (base)<br>**66–72 tok/s** (speculative) | **The Benchmark Gold Standard**: Full 4-bit accuracy, speculative boost. |
 | **128 GB Unified Mini PC**<br>*(AMD Strix Halo Ryzen AI Max+ 395)* | Qwen 3.8 Flash-Next `Q4_K_M` (94–124 GB) | **Gufo / Strata** (Linux) | 128k+ tokens | 8-bit (`q8_0`) | 47–54 tok/s<br>(1,227–1,300 tok/s prefill) | Best value unified system ($3,099). **Must run Linux** to bypass 96GB cap. |
 | **128 GB Mac Studio**<br>*(Apple M5 Max 40-core GPU)* | Qwen 3.8 Flash-Next / 27B FP16 | **MLX** (`mlx-serve`) | 128k–256k tokens | FP16 / 8-bit | 40 tok/s (prose)<br>75 tok/s (code) | Silent workstation, 614 GB/s bandwidth. **Requires sysctl memory unlock.** |
 | **128 GB Unified CUDA**<br>*(Nvidia DGX Spark / Jetson Thor)* | Qwen 3.8 Flash-Next `NVFP4` | **vLLM** + SSD swap | 128k tokens | FP8 / 8-bit | ~41 tok/s decode<br>(1,666 tok/s prefill) | High prefill throughput for multi-turn agents. Uses fast NVMe SSD offload. |
 
 ---
 
-## 2. The 5 VRAM Slices & Theoretical Foundations
+## 2. Verified Model Capabilities & Benchmark Scorecard
+
+Empirical evaluations across the coding and agentic AI ecosystem show that Alibaba's Qwen 3.8 architecture represents a significant step change in open-weight autonomous capabilities.
+
+### SWE-bench Pro & LiveCodeBench Leadership
+* **SWE-bench Pro (61.7%):** Tested using the official Claude Code test harness (`temperature=1.0`, `top_p=0.95`, native 256K context). Qwen 3.8 27B establishes a new benchmark for open-weights, outperforming proprietary checkpoints such as Claude Opus 4.6 Max (53.4%) and its predecessor Qwen 3.6 27B (53.5%).
+* **LiveCodeBench v6 (90.3%):** Measures rigorous competitive programming problem-solving without data contamination.
+* **Terminal Bench 2.1 (73.0%):** Measures autonomous multi-step bash execution, git conflict resolution, debugging, and sysadmin tasks.
+* **OSWorld-Verified (84.3%):** Evaluates multi-modal agentic computer interaction, GUI navigation, and visual tool use.
+
+### Benchmark Summary Table vs Frontier Models
+
+| Model | Model Scale / Type | SWE-bench Pro | LiveCodeBench v6 | Terminal Bench 2.1 | OSWorld-Verified | Native Context |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Qwen 3.8 27B** | 27.8B Dense (Hybrid GDN) | **61.7%** | **90.3%** | **73.0%** | **84.3%** | 262k |
+| **Claude Opus 4.6 Max** | Proprietary Frontier | 53.4% | 88.7% | 71.2% | 81.0% | 200k |
+| **Qwen 3.6 27B** | 27B Dense | 53.5% | 83.9% | 64.8% | 74.2% | 128k |
+| **Qwen 2.5 Coder 32B** | 32.5B Standard Attention | 48.2% | 79.5% | 58.1% | N/A (Text) | 128k |
+| **DeepSeek-Coder V2 236B** | 236B MoE (21B active) | 52.8% | 84.1% | 66.4% | N/A (Text) | 128k |
+
+### Thinking Effort Hierarchy
+Qwen 3.8 incorporates an integrated reasoning loop that can be dynamically tuned to prevent the model from wasting tokens on trivial questions:
+1. **`xhigh` (Default Evaluation Mode):** Exhaustive multi-branch reasoning. Emits up to 20,000–30,000 tokens of internal chain-of-thought. Required for 61.7% SWE-bench Pro scores.
+2. **`high`:** Full architectural reasoning for complex refactors and algorithm synthesis (5k–15k thinking tokens).
+3. **`medium` (Recommended for Local Dev):** Concise chain-of-thought (1k–4k thinking tokens). Solves standard bug fixes and unit tests without stalling.
+4. **`low`:** Rapid deterministic responses (100–500 thinking tokens). Ideal for CLI completions and routine file updates.
+
+---
+
+## 3. Deep Architecture Breakdown: How Qwen Beats the Memory Wall
+
+### Hybrid Attention: Gated DeltaNet (GDN) + QSA (The 3:1 Layer Ratio)
+Standard Transformers suffer from quadratic memory growth ($O(N^2)$) as conversation length increases. Qwen 3.8 solves this by replacing standard attention across **75% of the network**:
+
+```text
+Layer Pattern (Repeating 4-layer block across 64 layers):
+[Layer N+0]: Gated DeltaNet (Linear Attention - O(1) Memory State)
+[Layer N+1]: Gated DeltaNet (Linear Attention - O(1) Memory State)
+[Layer N+2]: Gated DeltaNet (Linear Attention - O(1) Memory State)
+[Layer N+3]: Qwen Sparse Attention (Full Softmax Attention - KV Cache)
+```
+
+1. **48 Gated DeltaNet (GDN) Layers:**
+   - Employs the **Delta Rule** ($\Delta$-Rule): Rather than infinitely accumulating tokens, it subtracts stale memory associations before writing new state updates.
+   - Operates with an $O(1)$ memory complexity per token.
+   - Each GDN layer maintains a running state buffer of **~3.27 MB**.
+   - Total memory for all 48 linear layers: $48 	imes 3.27	ext{ MB} pprox \mathbf{157	ext{ MB}}$ **fixed permanently**, whether your prompt is 10 tokens or 260,000 tokens!
+2. **16 Qwen Sparse Attention (QSA) Layers:**
+   - Retain full global softmax attention with Grouped-Query Attention (GQA) and RoPE.
+   - Index context at a micro-block level, drastically reducing long-context retrieval latency.
+   - Only these 16 layers accumulate a per-token KV cache ($pprox 64	ext{ KB}$ per token at FP16).
+
+### Predictive Lookup Embedding (PLE): The 51B N-Gram Table
+In **Qwen 3.8 Flash-Next (125B MoE)**, Alibaba added a **51-billion parameter Predictive Lookup Embedding (PLE)** table:
+- Evaluates local n-gram sequences (bigrams and trigrams) to predict common syntax and token clusters.
+- Because lookup operations are sparse and non-differentiable during inference, the entire 51B table can be **asynchronously offloaded to host system RAM over PCIe 4.0/5.0** or even PCIe NVMe SSDs without blocking the GPU's active compute pipeline.
+- This architectural decouple is what allows **Strata** to run a 125B model on a single 12GB RTX 3060!
+
+### Gated Residuals (GR) & Cross-Layer Stability
+Qwen 3.8 expands the conventional single residual stream into 4 separate gated pathways governed by dynamic data-dependent read/write gates. This prevents gradient explosion in long contexts (up to 1M with YaRN) and ensures consistent reasoning quality throughout deep agent trajectories.
+
+---
+
+## 4. The 5 VRAM Slices & Theoretical Foundations
 
 When planning memory allocation for large language models, VRAM is divided into five distinct slices:
 
@@ -94,21 +167,11 @@ VRAM_total = VRAM_weights + VRAM_KV + VRAM_extras + VRAM_scratch + VRAM_display
 
 ---
 
-### Slice 2: KV Cache & Gated Delta Linear Attention
-In traditional Transformers (e.g. Llama 3), every attention layer stores Keys and Values for every single token in the context window. 
-
-#### Qwen 3.8 Hybrid Architecture Breakthrough
-Qwen 3.8 has 64 total layers, but only **16 layers** are standard multi-head self-attention. The remaining **48 layers** are **Gated Delta** linear attention layers.
-1. **The 48 Gated Delta Layers:**
-   - Maintain a running recurrent summary of approximately **3.27 MB per layer**.
-   - Total memory: `48 * 3.27 MB = ~157 MB` **fixed**, regardless of context length (10 tokens or 250,000 tokens).
-2. **The 16 Standard Attention Layers:**
-   - Store Key and Value tensors for context retrieval.
-   - 4 KV heads * 256 head dimension * 2 bytes (FP16) * 2 (K+V) * 16 layers = **64 KB per token**.
-   - Context scaling table:
-     - **32,000 tokens:** ~2.0 GB
-     - **128,000 tokens:** ~8.5 GB
-     - **262,144 tokens (full context):** ~17.0 GB
+### Slice 2: KV Cache & The 157MB Recurrent State
+Because only 16 layers accumulate a per-token cache (at 64 KB/token):
+- **32,000 tokens:** ~2.0 GB
+- **128,000 tokens:** ~8.5 GB
+- **262,144 tokens (full context):** ~17.0 GB
 
 #### KV Cache Quantization Rules
 - **8-bit KV (`-ctk q8_0 -ctv q8_0`):** Halves memory consumption (32k = 1.0 GB; 128k = 4.25 GB) with **near-zero loss in retrieval precision**. Recommended for all production setups.
@@ -123,37 +186,31 @@ Qwen 3.8 has 64 total layers, but only **16 layers** are standard multi-head sel
   - 8-bit quantized size: ~0.6 GB.
   - *Recommendation:* Do not load `mmproj` for pure coding/agent text workflows to save ~1 GB of VRAM.
 - **Speculative Decoding Draft Head:**
-  - A compact helper model (~1.5 GB) trained specifically to predict the next 2 tokens ahead of the main model.
+  - A compact helper model (~1.5 GB) trained specifically to predict candidate tokens ahead of the main model.
   - Generates token candidates that the 27B model verifies in a single forward pass.
-  - *Impact:* Jumps generation speed on an RTX 3090 from 41.5 tok/s to **66 tok/s** (+59% speedup).
+  - *Impact:* Jumps generation speed on an RTX 3090 from 41.5 tok/s to **66–72 tok/s** (+59% to +73% speedup).
 
 ---
 
 ### Slice 4: Scratch Space & State Buffers
-- llama.cpp and inference engines allocate memory for intermediate activation tensors, attention logits, and CUDA kernel execution scratchpads.
 - Standard allocation: **~1.0 GB**.
 - Combined with the 157 MB Gated Delta recurrent state: **~1.16 GB**.
 
 ---
 
 ### Slice 5: Display Buffer & Host OS Overhead
-- If your primary GPU is driving monitors, web browsers, and an X11/Wayland desktop compositor, VRAM is pre-allocated by the operating system:
-  - 1080p Single Display: ~400–600 MB.
-  - 4K Single Display: ~900 MB – 1.2 GB.
-  - Multi-Monitor + Chrome/Electron: **1.5 GB – 2.2 GB**.
+- 1080p Single Display: ~400–600 MB.
+- 4K Single Display: ~900 MB – 1.2 GB.
+- Multi-Monitor + Chrome/Electron: **1.5 GB – 2.2 GB**.
 - *Crucial Rule:* On a 16GB GPU, you only have ~14.0 GB of usable VRAM for AI workloads unless running headless.
 
 ---
 
 ### The Memory Bandwidth Decoding Law
 
-Unlike the prompt processing phase (prefill) which is compute/matrix-math bound, **token generation (decoding) is memory bandwidth bound**. To produce a single token, the GPU must stream every single weight from VRAM into its compute cores.
+$$	ext{Theoretical Decode Speed (tokens/sec)} pprox rac{	ext{Memory Bandwidth (GB/s)}}{	ext{Model File Size (GB)}} 	imes \eta$$
+*(where $\eta$ is engine memory efficiency, typically between $0.75$ and $0.80$)*
 
-```text
-Theoretical Decode Speed (tokens/sec) = (Memory Bandwidth (GB/s) / Model File Size (GB)) * Efficiency (0.75 - 0.80)
-```
-
-#### Bandwidth & Speed Comparison:
 | GPU Hardware | Memory Bandwidth | Model File Size (Quant) | Theoretical Ceiling | Measured Real-World Speed |
 | :--- | :--- | :--- | :--- | :--- |
 | **RTX 3060 12GB** | 360 GB/s | 11.0 GB (`IQ3_XXS`) | 32.7 tok/s | ~28–31 tok/s |
@@ -164,37 +221,47 @@ Theoretical Decode Speed (tokens/sec) = (Memory Bandwidth (GB/s) / Model File Si
 | **Apple M4 Pro** | 273 GB/s | 11.0 GB (`IQ3_XXS`) | 24.8 tok/s | ~13–18 tok/s |
 | **Apple M5 Max** | 614 GB/s | 17.5 GB (`Q4_K_M`) | 35.0 tok/s | ~30–35 tok/s (dense) / 75 tok/s (code MoE) |
 
-> [!WARNING]
-> **The System RAM Offloading Cliff**:
-> DDR4 memory bandwidth is ~51 GB/s (dual-channel 3200MHz), and DDR5 is ~70–90 GB/s. As soon as a model exceeds GPU VRAM and spills layers into host system RAM, token generation speed collapses to **1.5 to 5 tokens/second**.
+---
+
+## 5. Inference Engine Showdown: Strata vs Gufo vs llama.cpp vs vLLM
+
+Community benchmarks prove that the choice of inference engine matters just as much as physical hardware:
+
+### Strata: Discrete Consumer GPU + RAM Tiering
+* **Target Hardware:** Standard PCs with discrete NVIDIA/AMD GPUs (RTX 3060, 4070, 3090) and 32GB–64GB system RAM.
+* **Core Technology:** Dynamic memory tiering. It partitions MoE weights into hot active layers on GPU VRAM, while streaming inactive experts and the 51B PLE lookup table over PCIe.
+* **Prefill Speed:** **1,750 tokens/sec** at 32k context on an RTX 3060 12GB + 64GB DDR5.
+
+### Gufo: High-Bandwidth Unified Memory (AMD Strix Halo)
+* **Target Hardware:** AMD Ryzen AI MAX+ 395 systems (128GB unified LPDDR5x RAM @ 256 GB/s).
+* **Core Technology:** Eliminates discrete PCIe transfers completely. Gufo memory-maps the entire 94GB–124GB Qwen 3.8 Flash-Next model directly into unified address space.
+* **Prefill Speed:** **1,227–1,300 tokens/sec** (compared to llama.cpp's 113 tokens/sec on the identical box).
+
+### Speculative Decoding Deep Dive (MTP vs DFlash vs N-Gram Stacking)
+Speculative decoding breaks the memory bandwidth ceiling by verifying multiple predicted tokens in a single weight-reading pass:
+1. **MTP (Multi-Token Prediction / Sidecar Head):**
+   - Invoked via `--spec-type draft-mtp` in llama.cpp.
+   - Uses an official ~1.5GB draft model matching the main tokenizer.
+   - Yields **1.6x to 2.5x speedups** on code tasks.
+2. **DFlash (Block Drafting):**
+   - Predicts contiguous token blocks in parallel.
+   - Delivers **3.7x to 4.5x speedups** on iterative code modifications.
+3. **N-Gram Stacking (`ngram-mod`, `ngram-map-k4v`):**
+   - Operates out of host RAM with zero VRAM cost, referencing recent context patterns.
+   - In repetitive programming syntax (loops, struct definitions), acceptance rates exceed **85–90%**, propelling speeds on an RTX 3090/4090 beyond **130+ tokens/second**!
 
 ---
 
-## 3. The 128GB VRAM Myth & "The Fourth Bit" Economics
+## 6. The 128GB VRAM Myth & "The Fourth Bit" Economics
 
-### Qwen 3.8 Flash-Next Architecture & Expert Offloading
-Qwen 3.8 Flash-Next is a 125B total parameter Mixture-of-Experts (MoE) model. However, it activates only **~6B parameters per token**, paired with a **51B parameter n-gram / sequence lookup table**.
-- Because the 51B lookup table is queried sparsely, it does not need to live in high-speed GPU VRAM.
-- **Strata** (and community engines like **Gufo**) partition the model:
-  - **GPU VRAM:** Holds active transformer attention blocks (~6B params = ~6–10 GB).
-  - **System Host RAM (over PCIe):** Holds the inactive expert weights and lookup tables.
-- **Result on a 12GB GPU + 64GB DDR5 System:**
-  - Token Decode Speed: **50 to 62 tokens/second**.
-  - Prompt Prefill Speed: **1,750 tokens/second** (at 32k context).
-  - Total Hardware Cost: A standard ~$800–$1,200 gaming PC.
-
-### The Hidden 96GB Memory Cap Trap
+### The Hidden 96GB OS Memory Cap Trap
 Purchasing a "128GB" unified memory machine does not mean the operating system allows the GPU to use 128GB:
-1. **AMD Strix Halo (Ryzen AI Max+ 395) on Windows:**
-   Windows hard-caps the addressable VRAM allocation to **96 GB by default**, reserving 32 GB strictly for the CPU. A 124 GB 4-bit model will fail to load or crash. On **Linux**, kernel drivers allow allocating up to **110–120 GB**.
-2. **Mac Studio M5 Max 128GB:**
-   macOS enforces a default wired memory ceiling of **75% of physical RAM (~96 GB)** for the Metal GPU allocator. Loading a 94–105 GB model causes immediate kernel panics or Out-Of-Memory termination.
-   *Fix:* Must manually raise the sysctl wired memory limit via terminal:
+1. **AMD Strix Halo on Windows:** Windows hard-caps the addressable VRAM allocation to **96 GB by default**, reserving 32 GB strictly for the CPU. On **Linux**, kernel parameters allow allocating up to **110–120 GB**.
+2. **Mac Studio M5 Max 128GB:** macOS enforces a default wired memory ceiling of **75% of physical RAM (~96 GB)** for the Metal GPU allocator. Must be raised via `sysctl`:
    ```bash
    sudo sysctl iogpu.wired_mem_limit_mb=114688
    ```
-3. **Nvidia DGX Spark ($6,950, 128GB):**
-   The operating system and CUDA runtime expose only ~122 GB of usable memory. Nvidia's official recipe keeps ~48 GB of model weights on an ultra-fast NVMe SSD and pages them during execution.
+3. **Nvidia DGX Spark ($6,950, 128GB):** Exposes only ~122 GB of usable memory. Nvidia's official recipe keeps ~48 GB of model weights on an ultra-fast NVMe SSD and pages them during execution.
 
 ### Engine Impact on Long-Context Prefill Speed
 Prefill speed (how fast an LLM processes a 30k–160k token agent prompt) depends heavily on engine implementation:
@@ -211,7 +278,7 @@ Prefill speed (how fast an LLM processes a 30k–160k token agent prompt) depend
 
 ---
 
-## 4. Step-by-Step Hardware Setup Recipes
+## 7. Step-by-Step Hardware Setup Recipes
 
 ### Recipe A: Qwen 3.8 Flash-Next via Strata (12GB–24GB GPU + System RAM)
 *Target: RTX 3060 12GB, RTX 4070 12GB, RTX 3090/4090 24GB + 64GB System DDR4/DDR5.*
@@ -250,7 +317,60 @@ Run the turnkey script in `configs/llama-server-24gb.sh`:
 
 ---
 
-## 5. Autonomous LLM & Agent Runbook (Claude Code / Codex / Antigravity CLI)
+### Recipe C: Unified Memory Workstations (Strix Halo, Mac Studio M5 Max, DGX Spark)
+
+#### C.1: AMD Strix Halo (Ryzen AI Max+ 395 128GB) on Linux
+1. **Set Linux Kernel Boot Parameters (GRUB):**
+   ```bash
+   sudo nano /etc/default/grub
+   # Add to GRUB_CMDLINE_LINUX_DEFAULT:
+   # amdgpu.gttsize=114688 amdgpu.vramsize=114688
+   sudo update-grub
+   sudo reboot
+   ```
+2. **Run Gufo Fork for 1,227+ tok/s Prefill:**
+   ```bash
+   gufo-server        --model /models/qwen3.8-flash-next-q4_k_m.gguf        --ctx-size 131072        --batch-size 2048        --threads 16        --port 8080
+   ```
+
+#### C.2: Apple Mac Studio M5 Max (128GB Unified Memory)
+1. **Unlock macOS Wired Memory Ceiling:**
+   ```bash
+   sudo sysctl iogpu.wired_mem_limit_mb=114688
+   ```
+2. **Launch MLX Serve with Speculative Decoding:**
+   ```bash
+   mlx-serve        --model mlx-community/Qwen3.8-Flash-Next-4bit        --draft-model mlx-community/Qwen3.8-Flash-Next-Draft        --max-tokens 131072        --port 8080
+   ```
+
+---
+
+### Recipe D: Fixing Ollama (4K Context Window & Reasoning Traps)
+
+```dockerfile
+# /etc/ollama/Modelfiles/Modelfile.qwen27b
+FROM /models/qwen3.8-27b/qwen3.8-27b-q4_k_m.gguf
+
+# 1. Expand context window to 64k
+PARAMETER num_ctx 65536
+
+# 2. Enable Flash Attention & 8-bit KV cache
+PARAMETER flash_attention true
+PARAMETER num_predict 16384
+
+# 3. Control Thinking / Reasoning Effort (low, medium, high)
+PARAMETER reasoning_effort medium
+
+# 4. Temperature & Sampling
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
+
+SYSTEM """You are an expert autonomous software engineer and pair programmer. Provide direct, verifiable solutions and concise, production-ready code."""
+```
+
+---
+
+## 8. Autonomous LLM & Agent Runbook (Claude Code / Codex / Antigravity CLI)
 
 ### Master Prompt for Coding Agents
 
@@ -273,15 +393,16 @@ Perform the following sequence autonomously:
 
 ---
 
-## 6. Repository Structure
+## 9. Repository Structure & Appendix Links
 
 ```text
 code/qwen-setup/
-├── README.md                                 # Master architectural guide & runbook
+├── README.md                                 # Master architectural guide, benchmarks & runbook
 ├── configs/
 │   ├── Modelfile.qwen27b                    # Ollama Modelfile with 64k ctx & reasoning effort
 │   ├── Modelfile.qwen27b-128k               # 128k context configuration
 │   ├── llama-server-24gb.sh                 # 24GB GPU llama.cpp launcher with Draft Head
+│   ├── llama-server-speculative-advanced.sh # Advanced MTP + N-Gram stacking launcher
 │   ├── strata-12gb-setup.sh                 # 12GB GPU Strata expert offload launcher
 │   └── mac-m5-max-unlock.sh                 # Apple Silicon wired memory ceiling unlock
 ├── scripts/
@@ -293,10 +414,6 @@ code/qwen-setup/
     ├── qwen-3.8-27b-vram-requirements-transcript.md # Video 2 clean transcript
     └── raw/                                 # Original .vtt and raw text files
 ```
-
----
-
-## 7. Appendix Links
 
 - [Video 1 Full Transcript: 128GB VRAM for Local AI](transcripts/128gb-vram-local-ai-transcript.md)
 - [Video 2 Full Transcript: How Much VRAM Does Qwen 3.8 27B Really Need?](transcripts/qwen-3.8-27b-vram-requirements-transcript.md)
