@@ -1,0 +1,10 @@
+# Gitignore for local AI models & caches
+*.gguf
+*.bin
+*.pt
+*.safetensors
+models/
+__pycache__/
+*.pyc
+/tmp/agent_captures/
+.system_generated/

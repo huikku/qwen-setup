@@ -1,0 +1,9 @@
+# Modelfile for Qwen 3.8 27B (128K Deep Context)
+FROM /models/qwen3.8-27b/qwen3.8-27b-iq3_xxs.gguf
+
+PARAMETER num_ctx 131072
+PARAMETER flash_attention true
+PARAMETER num_predict 16384
+PARAMETER reasoning_effort high
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
