@@ -48,6 +48,10 @@
 
 This framework is completely unconstrained by hardware form factor. Model selection and quantization precision are dictated solely by total addressable high-speed memory and execution bandwidth.
 
+<p align="center">
+  <img src="assets/qwen-hardware-matrix-wide.jpg" alt="Qwen 3.8 Hardware & VRAM Sizing Matrix" width="100%" />
+</p>
+
 ```mermaid
 flowchart TD
     Hardware["Target Hardware System"] --> T1["Tier 1: 128GB - 512GB+ Unified / Multi-GPU<br>(NVIDIA Thor, DGX, Mac Ultra, 4x 4090)"]
@@ -179,6 +183,10 @@ Qwen 3.8 expands the conventional single residual stream into 4 separate gated p
 ---
 
 ## 4. The 5 Hardware Memory Slices & Theoretical Foundations
+
+<p align="center">
+  <img src="assets/qwen-architecture-laws-wide.jpg" alt="Qwen 3.8 System Architecture & Engineering Laws" width="100%" />
+</p>
 
 ```mermaid
 flowchart LR
